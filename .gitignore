@@ -1,0 +1,12 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+*.suo
+*.user
+*.map
+/Linq.TypeScript/Linq.TypeScript/bin
+/Linq.TypeScript/Linq.TypeScript/obj
+/Linq.TypeScript/Linq.TypeScript/test.linq.typescript.js
+/Linq.TypeScript/Linq.TypeScript/test.linq.typescript.d.ts
+/Linq.TypeScript/Linq.TypeScript/linq.typescript.js
