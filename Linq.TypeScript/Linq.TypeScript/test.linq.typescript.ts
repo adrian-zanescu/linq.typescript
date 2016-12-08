@@ -18,6 +18,11 @@
         var join = linq(source).join(linq(result), l => l, r => r, (l, r) => l + r).toArray();
         result = linq.generate(i => i).take(10).toArray();
         console.log(result);
+
+        source = linq.generate(i => i).take(1000 * 100);
+        var min = source.min();
+        var max = source.max();
+        var sum = source.sum();
     }
 
     Do();

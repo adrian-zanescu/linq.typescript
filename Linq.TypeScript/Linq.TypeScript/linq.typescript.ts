@@ -77,9 +77,10 @@
             return this._source.getEnumerator();
         }
 
-        forEach(action: (t: T) => void, shouldBreak?: (t: T) => boolean)
+        forEach(action: (t: T, i: number) => void, shouldBreak?: (t: T) => boolean)
         {
             var iter = this.getEnumerator();
+            var i = 0;
             while (iter.moveNext())
             {
                 var current = iter.current();
@@ -87,7 +88,8 @@
                 {
                     break;
                 }
-                action(current);
+                action(current, i);
+                i++;
             }
         }
 
@@ -123,21 +125,24 @@
         select<S>(selector: (t: T, i: number) => S): ILinqEnumerable<S>;
         where(predicate: (t: T, i: number) => boolean): ILinqEnumerable<T>;
 
-        apply(action: (t: T) => void): ILinqEnumerable<T>;
-        forEach(action: (t: T) => void): void;
+        apply(action: (t: T, i: number) => void): ILinqEnumerable<T>;
+        forEach(action: (t: T, i: number) => void): void;
 
         toArray(): T[];
-        toDictionary<TValue>(keySelector: (t: T) => string, valueSelector: (t: T) => TValue): IDictionary<TValue>;
+        toDictionary<TValue>(keySelector: (t: T, i: number) => string, valueSelector: (t: T, i: number) => TValue): IDictionary<TValue>;
 
-        join<TRight, TResult>(right: IEnumerable<TRight>, leftKey: (t: T) => any, rightKey: (r: TRight) => any
+        join<TRight, TResult>(right: IEnumerable<TRight>, leftKey: (t: T, i: number) => any, rightKey: (r: TRight, i: number) => any
             , selector: (l: T, r: TRight) => TResult): ILinqEnumerable<TResult>;
         union(other: IEnumerable<T>): ILinqEnumerable<T>;
 
         take(count: number): ILinqEnumerable<T>;
         skip(count: number): ILinqEnumerable<T>;
-        zip<S, R>(other: IEnumerable<S>, selector: (t: T, s: S) => R): ILinqEnumerable<R>
+        zip<S, R>(other: IEnumerable<S>, selector: (t: T, s: S, i: number) => R): ILinqEnumerable<R>
 
-        aggregate<S>(func: (t: T, acumulator: S) => S, seed?: S): S;
+        aggregate<S>(func: (t: T, acumulator: S, i: number) => S, seed?: S): S;
+        max(): T;
+        min(): T;
+        sum(): T;
     }
 
     class LinqEnumerable<T> extends Enumerable<T> implements ILinqEnumerable<T>
@@ -166,9 +171,9 @@
             });
         }
 
-        apply(action: (t: T) => void): ILinqEnumerable<T>
+        apply(action: (t: T, i: number) => void): ILinqEnumerable<T>
         {
-            return this.select(a => { action(a); return a });
+            return this.select((a, i) => { action(a, i); return a });
         }
 
         toArray(): T[]
@@ -219,7 +224,7 @@
                 });
         }
 
-        join<TRight, TResult>(right: ILinqEnumerable<TRight>, leftKey: (t: T) => any, rightKey: (r: TRight) => any
+        join<TRight, TResult>(right: ILinqEnumerable<TRight>, leftKey: (t: T, i: number) => any, rightKey: (r: TRight, i : number) => any
             , selector: (l: T, r: TRight) => TResult): ILinqEnumerable<TResult>
         {
             return new LinqEnumerable(
@@ -227,12 +232,12 @@
                     getEnumerator: () =>
                     {
                         var keys = {};
-                        var head = this.take(1).selectMany(l =>
+                        var head = this.take(1).selectMany((l, i) =>
                         {
-                            var lk = leftKey(l);
-                            return right.select(r =>
+                            var lk = leftKey(l, i);
+                            return right.select((r, j) =>
                             {
-                                var rk = rightKey(r);
+                                var rk = rightKey(r, j);
                                 var rs: any[] = keys[rk] || [];
                                 rs.push(r);
                                 keys[rk] = rs;
@@ -240,11 +245,11 @@
                             }).where(a => a.rk == lk)
                                 .select(a => selector(l, a.r));
                         });
-                        var tail = this.skip(1).selectMany(l =>
+                        var tail = this.skip(1).selectMany((l, i) =>
                         {
-                            var lk = leftKey(l);
+                            var lk = leftKey(l, i);
                             var rightJoin = Enumerable.fromArray<TRight>(keys[lk]);
-                            return rightJoin.select(r =>
+                            return rightJoin.select((r, j) =>
                             {
                                 return selector(l, r);
                             });
@@ -254,7 +259,7 @@
                 });
         }
 
-        zip<S, R>(other: IEnumerable<S>, selector: (t: T, s: S) => R): ILinqEnumerable<R>
+        zip<S, R>(other: IEnumerable<S>, selector: (t: T, s: S, i: number) => R): ILinqEnumerable<R>
         {
             return new LinqEnumerable(
                 {
@@ -262,20 +267,47 @@
                     {
                         var iter1 = this.getEnumerator();
                         var iter2 = other.getEnumerator();
-                        var gen = Implementations.generate((i) => selector(iter1.current(), iter2.current()), (prev, i) => iter1.moveNext() && iter2.moveNext());
+                        var gen = Implementations.generate((i) => selector(iter1.current(), iter2.current(), i), (prev, i) => iter1.moveNext() && iter2.moveNext());
                         return gen.getEnumerator();
                     }
                 });
         }
 
-        aggregate<S>(func: (t: T, acumulator: S) => S, seed?: S): S
+        aggregate<S>(func: (t: T, acumulator: S, i: number) => S, seed?: S): S
         {
-            var iter = this.getEnumerator();
-            while (iter.moveNext())
+            var s = seed;
+            this.forEach((a, i) =>
             {
-                seed = func(iter.current(), seed);
-            }
-            return seed;
+                s = func(a, s, i);
+            });
+            return s;
+        }
+
+        max(): T
+        {
+            return this.aggregate<T>((a, s: any) =>
+            {
+                s = s || (typeof a == "number" ? 0 : typeof a == "string" ? "" : null);
+                return a > s ? a : s;
+            })
+        }
+
+        min(): T
+        {
+            return this.aggregate<T>((a, s: any) =>
+            {
+                s = s || (typeof a == "number" ? 0 : typeof a == "string" ? "" : null);
+                return a < s ? a : s;
+            })
+        }
+
+        sum(): T
+        {
+            return this.aggregate<T>((a, s: any) =>
+            {
+                s = s || (typeof a == "number" ? 0 : typeof a == "string" ? "" : null);
+                return a + s;
+            })
         }
     }
 
